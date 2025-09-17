@@ -8,6 +8,7 @@ the MATLAB readInfoIter.m function.
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Any, Optional, Tuple
+from datetime import datetime, timedelta
 from ..utils.helpers import (
     compute_start_positions,
     process_well_status,
@@ -101,6 +102,10 @@ class DataReader:
             if dbg_path.exists():
                 dbg_file = str(dbg_path)
 
+        # Pre-calculate all step dates for performance optimization
+        # This avoids reading the DBG file repeatedly during navigation
+        step_dates = self._precalculate_step_dates(raw, curve_pos, dbg_file)
+
         return {
             "mb": mb,
             "cnv": cnv,
@@ -108,6 +113,7 @@ class DataReader:
             "raw": raw,
             "penalty": penalty,
             "dbg_file": dbg_file,
+            "step_dates": step_dates,  # Pre-calculated dates for all steps
         }
 
     def _parse_infoiter_file(self, filename: str) -> pd.DataFrame:
@@ -284,6 +290,108 @@ class DataReader:
 
         except Exception as e:
             return {"filename": filename, "error": str(e)}
+
+    def calculate_date_from_time_step(
+        self, initial_date: datetime, time_days: float
+    ) -> datetime:
+        """
+        Calculate the actual date from initial date and time step in days.
+
+        Args:
+            initial_date: Initial simulation date
+            time_days: Time step in days (from INFOITER file)
+
+        Returns:
+            Calculated datetime
+        """
+        return initial_date + timedelta(days=time_days)
+
+    def get_step_date_info(
+        self, data: Dict[str, Any], step_idx: int
+    ) -> Tuple[Optional[datetime], Optional[str]]:
+        """
+        Get date information for a specific step using pre-calculated dates.
+
+        This method is fast because it uses pre-calculated dates from the data loading phase,
+        avoiding the need to read DBG files or perform date calculations during navigation.
+
+        Args:
+            data: Raw data dictionary from read_infoiter (must contain 'step_dates')
+            step_idx: Step index (0-based)
+
+        Returns:
+            Tuple of (datetime object, formatted date string)
+        """
+        if not data or "step_dates" not in data:
+            return None, None
+
+        step_dates = data["step_dates"]
+        if step_idx >= len(step_dates):
+            return None, None
+
+        formatted_date = step_dates[step_idx]
+        if formatted_date is None:
+            return None, None
+
+        # Convert formatted date back to datetime object
+        try:
+            calculated_date = datetime.strptime(formatted_date, "%d-%b-%Y")
+            return calculated_date, formatted_date
+        except ValueError:
+            return None, None
+
+    def _precalculate_step_dates(
+        self, raw_data: Dict[str, Any], curve_pos: List[int], dbg_file: Optional[str]
+    ) -> List[Optional[str]]:
+        """
+        Pre-calculate all step dates for performance optimization.
+
+        Args:
+            raw_data: Raw data dictionary
+            curve_pos: Curve positions array
+            dbg_file: Path to DBG file
+
+        Returns:
+            List of formatted date strings for each step
+        """
+        step_dates = []
+
+        # Get initial date once
+        initial_date = None
+        if dbg_file:
+            try:
+                from .dbg_reader import DBGReader
+
+                dbg_reader = DBGReader(dbg_file)
+                initial_date = dbg_reader.get_initial_date()
+            except Exception:
+                pass
+
+        # Pre-calculate dates for all steps
+        for step_idx in range(len(curve_pos) - 1):
+            if step_idx >= len(curve_pos) - 1:
+                step_dates.append(None)
+                continue
+
+            step_start_idx = curve_pos[step_idx]
+
+            # Get time information from INFOITER data
+            if "Time" not in raw_data or step_start_idx >= len(raw_data["Time"]):
+                step_dates.append(None)
+                continue
+
+            time_days = raw_data["Time"][step_start_idx]
+
+            if initial_date is not None:
+                calculated_date = self.calculate_date_from_time_step(
+                    initial_date, time_days
+                )
+                formatted_date = calculated_date.strftime("%d-%b-%Y")
+                step_dates.append(formatted_date)
+            else:
+                step_dates.append(None)
+
+        return step_dates
 
 
 def read_infoiter(filename: str) -> Dict[str, Any]:

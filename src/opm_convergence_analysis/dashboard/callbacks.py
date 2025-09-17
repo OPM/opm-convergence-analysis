@@ -19,6 +19,7 @@ from .callback_utils import (
     create_intensity_plot,
     format_iteration_info,
     determine_new_step,
+    get_step_date_info,
 )
 from ..visualization import create_plotter
 from ..visualization.base import apply_theme_layout
@@ -167,8 +168,9 @@ def register_step_navigation_callbacks(app: dash.Dash, data_handler: DataHandler
             Input("iteration-intensity-plot", "clickData"),
             Input("iteration-slider", "value"),
             Input("upload-trigger", "children"),
+            Input("startup-interval", "n_intervals"),
         ],
-        [State("current-step-display", "children")],
+        [State("current-step-store", "data")],
     )
     def update_step_navigation(
         prev_clicks,
@@ -176,7 +178,8 @@ def register_step_navigation_callbacks(app: dash.Dash, data_handler: DataHandler
         click_data,
         slider_value,
         upload_trigger,
-        current_display,
+        startup_interval,
+        current_step_store,
     ):
         """Handle step navigation through buttons, plot clicks, slider, and upload trigger with enhanced display."""
         ctx = callback_context
@@ -184,11 +187,8 @@ def register_step_navigation_callbacks(app: dash.Dash, data_handler: DataHandler
         if not data_handler.data:
             return _handle_no_data_case()
 
-        # Parse current step from display text
-        try:
-            current_step = int(current_display.split(" ")[1]) - 1  # Convert to 0-based
-        except (ValueError, IndexError):
-            current_step = 0
+        # Get current step from step store
+        current_step = current_step_store if current_step_store is not None else 0
 
         # Compute iteration data once
         iterations_per_step, cumulative_sums, total_iterations = compute_iteration_data(
@@ -199,13 +199,23 @@ def register_step_navigation_callbacks(app: dash.Dash, data_handler: DataHandler
         n_steps = len(data_handler.data.get("curve_pos", [])) - 1
         max_step = max(0, n_steps - 1)
 
-        # Check if this was triggered by file upload
+        # Check what triggered this callback
         upload_was_triggered = any(
             trigger["prop_id"] == "upload-trigger.children" for trigger in ctx.triggered
+        )
+        startup_interval_triggered = any(
+            trigger["prop_id"] == "startup-interval.n_intervals"
+            for trigger in ctx.triggered
         )
 
         if upload_was_triggered and upload_trigger in ["uploaded", "failed", "error"]:
             # Reset to first step when new data is uploaded
+            new_step = 0
+        elif startup_interval_triggered and data_handler.data:
+            # Handle initial load case - startup interval triggered and data exists
+            new_step = 0
+        elif not ctx.triggered:
+            # Handle case with no triggers but data exists
             new_step = 0
         else:
             # Determine new step based on user interaction
@@ -241,11 +251,14 @@ def register_step_navigation_callbacks(app: dash.Dash, data_handler: DataHandler
             iterations_per_step, cumulative_sums, new_step, total_iterations
         )
 
+        # Disable tooltip to avoid navigation issues
+        tooltip_template = None
+
         return (
             new_step <= 0,  # prev_disabled
             new_step >= max_step,  # next_disabled
-            f"Step {new_step + 1} of {max_step + 1}",  # current_step_display
-            step_details,  # step_details_display
+            step_details,  # current_step_display (PRIMARY: Report Step, Time Step, Date - large & bold)
+            f"Substep {new_step + 1} of {max_step + 1}",  # step_details_display (SECONDARY: navigation info)
             convergence_status,  # convergence_status_display
             convergence_style,  # convergence_status_style
             new_step,  # current_step_store
@@ -255,10 +268,8 @@ def register_step_navigation_callbacks(app: dash.Dash, data_handler: DataHandler
             new_step,  # slider value
             slider_marks,  # slider marks
             {
-                "placement": "bottom",
-                "always_visible": True,
-                "template": f"Step {new_step + 1}",
-            },  # slider tooltip
+                "always_visible": False,
+            },  # slider tooltip (disabled)
             iteration_info,  # iteration info
         )
 
@@ -300,10 +311,8 @@ def _handle_no_data_case() -> tuple:
         0,  # slider value
         {},  # slider marks
         {
-            "placement": "bottom",
-            "always_visible": True,
-            "template": "Step 1",
-        },  # slider tooltip
+            "always_visible": False,
+        },  # slider tooltip (disabled)
         "",  # iteration info
     )
 

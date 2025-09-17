@@ -7,8 +7,30 @@ Contains helper functions to simplify and optimize callback logic.
 import numpy as np
 import plotly.graph_objects as go
 from typing import Dict, Any, List, Tuple, Optional
+from datetime import datetime
 
 from ..ui.styles import status_badge_style
+from ..core.data_reader import DataReader
+
+
+def get_step_date_info(
+    data: Dict[str, Any], step_idx: int
+) -> Tuple[Optional[datetime], Optional[str]]:
+    """
+    Get date information for a specific step using pre-calculated dates.
+
+    Args:
+        data: Raw data dictionary with pre-calculated step_dates
+        step_idx: Step index (0-based)
+
+    Returns:
+        Tuple of (datetime object, formatted date string)
+    """
+    try:
+        reader = DataReader()
+        return reader.get_step_date_info(data, step_idx)
+    except Exception:
+        return None, None
 
 
 def compute_iteration_data(data: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray, int]:
@@ -84,7 +106,7 @@ def create_slider_marks(num_steps: int, max_marks: int = 10) -> Dict[int, str]:
 
 def get_step_details(data: Dict[str, Any], step_idx: int) -> str:
     """
-    Get formatted step details (report step and time step).
+    Get formatted step details (report step, time step, and date).
 
     Args:
         data: Raw data dictionary
@@ -112,7 +134,19 @@ def get_step_details(data: Dict[str, Any], step_idx: int) -> str:
 
         report_step = raw_data["ReportStep"][step_start_idx]
         time_step = raw_data["TimeStep"][step_start_idx]
-        return f"Report Step: {report_step}, Time Step: {time_step}"
+
+        # Get date information
+        _, formatted_date = get_step_date_info(data, step_idx)
+
+        # Format with primary info (report step, time step, date) emphasized
+        primary_info_parts = []
+        primary_info_parts.append(f"Report Step: {report_step}")
+        primary_info_parts.append(f"Time Step: {time_step}")
+
+        if formatted_date:
+            primary_info_parts.append(f"Date: {formatted_date}")
+
+        return " | ".join(primary_info_parts)
 
     return ""
 
@@ -219,9 +253,7 @@ def create_intensity_plot(
             marker=dict(color=colors, line=dict(color=edge_colors, width=1)),
             name="Nonlinear Iterations",
             hovertemplate=(
-                "<b>Step %{customdata[0]}</b><br>"
-                "Nonlinear Iterations: %{y}<br>"
-                "Relative Intensity: %{customdata[1]:.1%}<extra></extra>"
+                "<b>Step %{customdata[0]}</b><br>" "Nonlinear Iterations: %{y}<br>"
             ),
             customdata=np.column_stack([(steps + 1), normalized_iterations]).tolist(),
             showlegend=False,

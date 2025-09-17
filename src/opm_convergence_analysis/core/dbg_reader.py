@@ -9,6 +9,7 @@ parameters, tolerances, and other simulation settings.
 import re
 from pathlib import Path
 from typing import Dict, Any, Optional, Union
+from datetime import datetime
 import logging
 
 logger = logging.getLogger(__name__)
@@ -206,6 +207,38 @@ class DBGReader:
             logger.warning(f"Could not extract header info: {e}")
 
         return case_info
+
+    def get_initial_date(self) -> Optional[datetime]:
+        """
+        Extract the initial simulation date from the DBG file.
+
+        Looks for lines like: "Report step  0/247 at day 0/3312, date = 06-Nov-1997"
+        or "Report step  0/176 at day 0/5355, date = 01-Jan-2001"
+
+        Returns:
+            Initial datetime object or None if not found
+        """
+        try:
+            with open(self.dbg_path, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    # Robust regex pattern that handles different formats
+                    # Pattern: "Report step  0/XXX at day 0/XXX, date = DD-MMM-YYYY"
+                    match = re.search(
+                        r"Report step\s+0/\d+\s+at day\s+0/\d+,\s+date\s*=\s*(\d{1,2}-\w{3}-\d{4})",
+                        line,
+                    )
+                    if match:
+                        date_str = match.group(1)
+                        try:
+                            # Parse date in format "DD-MMM-YYYY" (e.g., "06-Nov-1997", "01-Jan-2001")
+                            return datetime.strptime(date_str, "%d-%b-%Y")
+                        except ValueError:
+                            continue
+
+        except (FileNotFoundError, ValueError, IndexError) as e:
+            logger.warning(f"Could not parse initial date from DBG file: {e}")
+
+        return None
 
 
 def find_case_files(input_path: Union[str, Path]) -> Dict[str, Optional[Path]]:

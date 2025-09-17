@@ -41,6 +41,10 @@ def create_main_layout() -> html.Div:
             dcc.Store(id="current-step-store", data=0),
             # Hidden div to trigger plot updates on file upload
             html.Div(id="upload-trigger", style={"display": "none"}),
+            # Interval component for initial trigger (runs once)
+            dcc.Interval(
+                id="startup-interval", interval=100, n_intervals=0, max_intervals=1
+            ),
             # Main Content Area
             html.Div(
                 id="main-content-area",

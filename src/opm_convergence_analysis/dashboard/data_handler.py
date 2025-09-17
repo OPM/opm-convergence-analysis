@@ -29,9 +29,8 @@ class DataHandler:
         self.current_step_index: int = 0
         self.available_steps: List[int] = []
 
-        # Performance optimization: cache plots that don't change between steps
-        self._cached_plots: Dict[str, Any] = {}
-        self._cache_invalidated: bool = True
+        # Flag to indicate if data has been loaded (for initial display)
+        self._data_loaded: bool = False
 
     def load_case_from_path(self, input_path: str) -> bool:
         """
@@ -63,6 +62,7 @@ class DataHandler:
             if success:
                 self._update_available_steps()
                 self._print_load_info()
+                self._data_loaded = True
 
             return success
 
@@ -281,19 +281,3 @@ class DataHandler:
             }
         else:
             return {"color": "#e74c3c", "text": "No Data"}
-
-    def get_cached_plot(self, plot_name: str):
-        """Get cached plot if available and cache is valid."""
-        if self._cache_invalidated:
-            return None
-        return self._cached_plots.get(plot_name)
-
-    def cache_plot(self, plot_name: str, plot_figure):
-        """Cache a plot figure."""
-        self._cached_plots[plot_name] = plot_figure
-        self._cache_invalidated = False
-
-    def invalidate_cache(self):
-        """Invalidate the plot cache (call when data changes)."""
-        self._cache_invalidated = True
-        self._cached_plots.clear()
