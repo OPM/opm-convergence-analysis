@@ -34,21 +34,13 @@ setup(
         "matplotlib>=3.5.0",
         "scipy>=1.7.0",
         "plotly>=5.0.0",
+        "dash>=2.0.0",
+        "pytest>=6.0",
+        "pytest-cov",
+        "black",
+        "flake8",
+        "mypy",
     ],
-    extras_require={
-        "dev": [
-            "pytest>=6.0",
-            "pytest-cov",
-            "black",
-            "flake8",
-            "mypy",
-        ],
-        "dashboard": [
-            "dash>=2.0.0",
-            "jupyter",
-            "ipywidgets",
-        ],
-    },
     package_data={
         "opm_convergence_analysis": ["tests/reference_data/*"],
     },

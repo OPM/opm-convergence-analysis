@@ -30,10 +30,20 @@ python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install the package
-pip install -e .[dev,dashboard]
+pip install -e .
 ```
 
 ## Usage
+
+### Generate INFOITER File from OPM Flow
+
+To use this tool, you need to run your OPM Flow simulation with extra convergence information:
+
+```bash
+flow SIMULATION_DECK.DATA --output-extra-convergence-info="steps,iterations"
+```
+
+This will generate a `SIMULATION_DECK.INFOITER` file containing the convergence data needed for analysis.
 
 ### Start the Dashboard
 ```bash
