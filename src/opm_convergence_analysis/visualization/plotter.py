@@ -6,7 +6,8 @@ analysis visualizations, including dashboards, radar plots, and well analysis.
 """
 
 import numpy as np
-from typing import Dict, Any, List, Optional
+import pandas as pd
+from typing import Dict, Any, List, Optional, Union
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
@@ -14,6 +15,7 @@ from .base import apply_theme_layout, create_color_sequence
 from ..config import PRIMARY_COLORS, FONT_FAMILY
 from .components import DistancePlotComponent, RadarPlotComponent
 from .well_analysis import WellStatusPlotComponent, WellFailureSummaryComponent
+from ..core.models import SimulationData
 
 
 class ConvergencePlotter:
@@ -45,7 +47,7 @@ class ConvergencePlotter:
 
     def create_dashboard(
         self,
-        data: Dict[str, Any],
+        data: SimulationData,
         errors: np.ndarray,
         labels: List[str],
         metrics: Dict[str, Any],
@@ -95,7 +97,7 @@ class ConvergencePlotter:
 
     def _create_convergence_analysis_dashboard(
         self,
-        data: Dict[str, Any],
+        data: SimulationData,
         errors: np.ndarray,
         labels: List[str],
         metrics: Dict[str, Any],
@@ -142,11 +144,17 @@ class ConvergencePlotter:
         return fig
 
     def _validate_and_prepare_steps(
-        self, steps: Optional[List[int]], data: Dict[str, Any], metrics: Dict[str, Any]
+        self,
+        steps: Optional[List[int]],
+        data: SimulationData,
+        metrics: Dict[str, Any],
     ) -> List[int]:
         """Validate and prepare steps for visualization."""
-        curve_pos = data.get("curve_pos", [])
-        n_steps = len(curve_pos) - 1 if len(curve_pos) > 1 else 1
+        if isinstance(data, SimulationData):
+            n_steps = data.n_steps
+        else:
+            curve_pos = data.get("curve_pos", [])
+            n_steps = len(curve_pos) - 1 if len(curve_pos) > 1 else 1
 
         if steps is None:
             # Default to first step
@@ -161,18 +169,24 @@ class ConvergencePlotter:
     def _add_convergence_analysis_components(
         self,
         fig: go.Figure,
-        data: Dict[str, Any],
+        data: SimulationData,
         errors: np.ndarray,
         labels: List[str],
         metrics: Dict[str, Any],
         step: int,
     ):
         """Add components for the convergence analysis dashboard."""
-        curve_pos = data.get("curve_pos", [])
-        if step >= len(curve_pos) - 1:
-            step = 0  # Fallback to first step
 
-        row_ix = np.arange(curve_pos[step], curve_pos[step + 1])
+        if isinstance(data, SimulationData):
+            # Get indices for this step
+            # Assuming data.iterations has a 'step_index' column
+            # We need raw integer indices corresponding to the 'errors' array rows
+            row_ix = np.where(data.iterations["step_index"] == step)[0]
+        else:
+            curve_pos = data.get("curve_pos", [])
+            if step >= len(curve_pos) - 1:
+                step = 0  # Fallback to first step
+            row_ix = np.arange(curve_pos[step], curve_pos[step + 1])
 
         # Add components to their respective subplots
         self.distance_component.add_to_figure(fig, 1, 1, metrics, row_ix, step)

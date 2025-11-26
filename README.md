@@ -1,16 +1,19 @@
-# OPM Convergence Analysis
+# Reservoir Simulation Convergence Analysis
 
-A Python library for analyzing convergence behavior in OPM Flow reservoir simulations.
+A Python library for analyzing convergence behavior in reservoir simulations.
 
 ## Overview
 
-This package provides tools for analyzing convergence behavior from OPM Flow simulation data, particularly from INFOITER files. It focuses on core convergence analysis functionality including error metric calculation, convergence indicators, and interactive visualization.
+This package provides tools for analyzing convergence behavior from reservoir simulation data. It focuses on core convergence analysis functionality including error metric calculation, convergence indicators, and interactive visualization.
 
 ## Features
 
-- **Data Reading**: Parse INFOITER files from OPM Flow simulations
-- **Convergence Analysis**: Calculate error metrics and convergence indicators
-- **Visualization**: Create interactive plots and dashboards for convergence analysis
+- **Generic Data Model**: Simulator-agnostic data structure for convergence logs.
+- **Multi-Simulator Support**:
+    - **OPM Flow**: Built-in support for INFOITER/DBG files.
+    - **Extensible**: Easy to add support for Eclipse, Intersect, JutulDarcy, etc. via custom Readers.
+- **Convergence Analysis**: Calculate error metrics and convergence indicators.
+- **Visualization**: Create interactive plots and dashboards for convergence analysis.
 
 ## Interactive Dashboard
 
@@ -35,16 +38,6 @@ pip install -e .
 
 ## Usage
 
-### Generate INFOITER File from OPM Flow
-
-To use this tool, you need to run your OPM Flow simulation with extra convergence information:
-
-```bash
-flow SIMULATION_DECK.DATA --output-extra-convergence-info="steps,iterations"
-```
-
-This will generate a `SIMULATION_DECK.INFOITER` file containing the convergence data needed for analysis.
-
 ### Start the Dashboard
 ```bash
 source venv/bin/activate  # On Windows: venv\Scripts\activate
@@ -54,41 +47,35 @@ Opens web interface at `http://localhost:8050` for uploading files.
 
 ### Run with Data
 ```bash
-# Test with included Norne case
+# Test with included Norne case (OPM Flow format)
 python app.py --case src/opm_convergence_analysis/tests/reference_data/NORNE_ATW2013.INFOITER
 
-# Run with your own files
-python app.py --case /path/to/your/simulation.INFOITER
-python app.py --case /path/to/your/simulation.DBG
+# Run with your own files (auto-detected format)
+python app.py --case /path/to/your/simulation_output
 ```
 
-### Python API
-```python
-import opm_convergence_analysis as oca
+### OPM Flow Specifics
 
-# Simple one-liner: analyze and save dashboard
-errors, labels, metrics, fig = oca.analyze_and_plot("simulation.INFOITER")
-
-# Or step-by-step with custom options
-data = oca.load_infoiter("simulation.INFOITER")
-errors, labels, metrics = oca.analyze_convergence(data)
-fig = oca.plot_convergence_analysis(data, errors, labels, metrics, save_path="results.html")
+To use this tool with OPM Flow, run your simulation with extra convergence information:
+```bash
+flow SIMULATION_DECK.DATA --output-extra-convergence-info="steps,iterations"
 ```
+This generates the `.INFOITER` file.
+
+## Generic Simulator Support
+
+This library is designed to be simulator-agnostic.
+
+For detailed information on the data format and how to add support for new simulators, see [Input Requirements](docs/input_requirements.md).
 
 ## Main Components
 
-- **DataReader**: Parse INFOITER files from OPM Flow simulations
-- **Analyzer**: Calculate error metrics and convergence indicators
-- **Visualization**: Plot convergence analysis results with interactive capabilities
-
-## API Reference
-
-### High-level Functions
-
-- `load_infoiter(filename)`: Load INFOITER file and return parsed data
-- `analyze_convergence(data, **kwargs)`: Analyze convergence behavior from data
-- `plot_convergence_analysis(data, errors, labels, metrics, **kwargs)`: Create interactive dashboard
-- `analyze_and_plot(infoiter_file, output_file=None, **kwargs)`: One-liner to analyze and save dashboard
+- **BaseReader/SimulationData**: Generic data interface (`core`).
+- **Simulators**:
+    - **OPM Flow**: Full support (INFOITER/DBG).
+    - **Custom**: Implement `BaseReader` to support others.
+- **Analyzer**: Calculate error metrics and convergence indicators.
+- **Visualization**: Plot convergence analysis results with interactive capabilities.
 
 ## Development
 

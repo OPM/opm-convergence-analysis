@@ -1,222 +1,101 @@
 """
 Well analysis components for dashboard visualization.
-
-This module contains specialized classes for analyzing and visualizing well-related
-convergence issues, including well status tracking and failure analysis.
 """
 
 import numpy as np
-import re
-from typing import Dict, Any, List, Optional, Tuple
 import plotly.graph_objects as go
+from typing import Dict, Any, List, Tuple
+from collections import defaultdict
 
 from .components import PlotComponent
+from ..core.models import SimulationData
 
 
 class WellFailureAnalyzer:
-    """Analyzes well failure patterns and provides structured summaries."""
+    """Analyzes well failure patterns from generic WellFailure objects."""
 
     @staticmethod
-    def parse_failure_reason(failure_string: str) -> str:
-        """
-        Parse well failure reason from failure string.
-
-        Handles all failure types from the WellFailure enum:
-        - Invalid, MassBalance, Pressure, ControlBHP, ControlTHP,
-        - ControlRate, Unsolvable, WrongFlowDirection
-
-        Args:
-            failure_string: Raw failure string like "ATO002 ControlRate" or "ATO005 MassBalance Phase=2"
-
-        Returns:
-            Human-readable failure reason string
-        """
-        failure_upper = failure_string.upper()
-
-        # Mass Balance failures (with phase information)
-        if "MASSBALANCE" in failure_upper:
-            if "PHASE=0" in failure_upper:
-                return "Mass Balance (Water)"
-            elif "PHASE=1" in failure_upper:
-                return "Mass Balance (Oil)"
-            elif "PHASE=2" in failure_upper:
-                return "Mass Balance (Gas)"
-            else:
-                return "Mass Balance"
-
-        # Control failures
-        elif "CONTROLRATE" in failure_upper:
-            return "Control Rate"
-        elif "CONTROLBHP" in failure_upper:
-            return "Control BHP"
-        elif "CONTROLTHP" in failure_upper:
-            return "Control THP"
-
-        # Pressure failures
-        elif "PRESSURE" in failure_upper:
-            return "Pressure"
-
-        # Solver failures
-        elif "UNSOLVABLE" in failure_upper:
-            return "Unsolvable"
-
-        # Flow direction failures
-        elif "WRONGFLOWDIRECTION" in failure_upper:
-            return "Wrong Flow Direction"
-
-        # Invalid or unknown failures
-        elif "INVALID" in failure_upper:
-            return "Invalid"
-
-        # Fallback for unrecognized failure types
-        else:
-            # Try to extract a meaningful name from the string
-            parts = failure_string.strip().split()
-            if len(parts) > 1:
-                # Return the failure type part (after well name)
-                failure_type = " ".join(parts[1:])
-                return f"Other ({failure_type})"
-            else:
-                return "Unknown"
-
-    @staticmethod
-    def analyze_well_failures(
-        well_status_strings: List[str], failed_wells_bool: Optional[np.ndarray] = None
+    def analyze_well_failures_from_data(
+        data: SimulationData, row_ix: np.ndarray
     ) -> Tuple[Dict[str, int], Dict[str, List[Dict[str, Any]]], int]:
         """
-        Analyze well failure patterns from status strings.
-
-        Args:
-            well_status_strings: List of well status strings for each iteration
-            failed_wells_bool: Optional boolean array indicating failed iterations
+        Analyze well failure patterns from SimulationData.well_failures.
 
         Returns:
-            Tuple of (failure_counts, well_failures, failed_iterations)
+            Tuple of (failure_counts, well_failures_by_well, failed_iteration_count)
         """
-        failure_counts = {}
-        well_failures = {}
+        if data.well_failures is None or len(data.well_failures) == 0:
+            return {}, {}, 0
+
+        failure_counts = defaultdict(int)
+        well_failures = defaultdict(list)
         failed_iterations = 0
 
-        for i, status in enumerate(well_status_strings):
-            # Convert to string and check for failures
-            status_str = str(status) if status is not None else ""
-            is_failed_by_bool = (
-                failed_wells_bool[i] if failed_wells_bool is not None else False
-            )
-
-            # Use both string check and boolean check
-            has_fail_in_string = "FAIL" in status_str
-            if has_fail_in_string or is_failed_by_bool:
+        for i, idx in enumerate(row_ix):
+            if idx < len(data.well_failures) and data.well_failures[idx]:
                 failed_iterations += 1
                 iteration_num = i + 1
 
-                if has_fail_in_string:
-                    # Extract failure reasons and well names from strings like "FAIL { ATO002 ControlRate }"
-                    failures = re.findall(r"\{([^}]+)\}", status_str)
-
-                    if failures:
-                        for failure in failures:
-                            # Extract well name (first part before space)
-                            parts = failure.strip().split()
-                            well_name = parts[0] if parts else "Unknown"
-
-                            # Parse failure reason
-                            reason = WellFailureAnalyzer.parse_failure_reason(failure)
-
-                            # Count failure types
-                            failure_counts[reason] = failure_counts.get(reason, 0) + 1
-
-                            # Track well failures
-                            if well_name not in well_failures:
-                                well_failures[well_name] = []
-                            well_failures[well_name].append(
-                                {
-                                    "iteration": iteration_num,
-                                    "reason": reason,
-                                    "full_reason": failure.strip(),
-                                }
-                            )
-                    else:
-                        # FAIL found but no braces - try to parse what we can
-                        reason = WellFailureAnalyzer.parse_failure_reason(status_str)
-                        failure_counts[reason] = failure_counts.get(reason, 0) + 1
-                        if "Unknown" not in well_failures:
-                            well_failures["Unknown"] = []
-                        well_failures["Unknown"].append(
-                            {
-                                "iteration": iteration_num,
-                                "reason": reason,
-                                "full_reason": status_str,
-                            }
-                        )
-                else:
-                    # Failed by boolean but no FAIL in string - try to parse what we can
-                    reason = WellFailureAnalyzer.parse_failure_reason(status_str)
-                    failure_counts[reason] = failure_counts.get(reason, 0) + 1
-                    if "Unknown" not in well_failures:
-                        well_failures["Unknown"] = []
-                    well_failures["Unknown"].append(
+                for failure in data.well_failures[idx]:
+                    reason = failure.get_display_reason()
+                    failure_counts[reason] += 1
+                    well_failures[failure.well_name].append(
                         {
                             "iteration": iteration_num,
                             "reason": reason,
-                            "full_reason": f"Failed (status: {status_str})",
                         }
                     )
 
-        return failure_counts, well_failures, failed_iterations
+        return dict(failure_counts), dict(well_failures), failed_iterations
 
 
 class WellStatusPlotComponent(PlotComponent):
-    """Component for well status plot showing failed wells over iterations."""
+    """Binary plot showing which iterations had well failures."""
 
     def add_to_figure(
         self,
         fig: go.Figure,
         row: int,
         col: int,
-        data: Dict[str, Any],
+        data: SimulationData,
         row_ix: np.ndarray,
         step: int,
     ):
-        """Add well status plot to the figure."""
-        # Check if we have well status data
-        if "raw" not in data or "FailedWells" not in data["raw"]:
-            self._add_no_data_message(fig, row, col, "No well status data available")
+        if data.well_failures is None or len(data.well_failures) == 0:
+            self._add_message(fig, row, col, "No well status data available")
             return
 
-        failed_wells = data["raw"]["FailedWells"][row_ix]
         iterations = np.arange(1, len(row_ix) + 1)
+        status_values = np.zeros(len(row_ix), dtype=int)
+        hover_text = []
 
-        # Get detailed well status strings if available
-        detailed_status = self._get_detailed_status(data, row_ix, failed_wells)
+        for i, idx in enumerate(row_ix):
+            if idx < len(data.well_failures) and data.well_failures[idx]:
+                status_values[i] = 1
+                well_info = [
+                    f"{f.well_name}: {f.failure_type}" for f in data.well_failures[idx]
+                ]
+                hover_text.append("<br>".join(well_info))
+            else:
+                hover_text.append("All wells OK")
 
-        # Create binary well status plot
-        colors = ["#27ae60", "#e74c3c"]  # Green for success, red for failure
-        status_values = failed_wells.astype(int)
+        colors = ["#27ae60" if v == 0 else "#e74c3c" for v in status_values]
 
         fig.add_trace(
             go.Scatter(
                 x=iterations,
                 y=status_values,
                 mode="markers+lines",
-                marker=dict(
-                    color=[colors[val] for val in status_values],
-                    size=8,
-                    symbol="circle",
-                ),
+                marker=dict(color=colors, size=8, symbol="circle"),
                 line=dict(color="#7f8c8d", width=1),
-                name="Well Status",
-                hovertemplate="<b>Iteration:</b> %{x}<br>"
-                "<b>Status:</b> %{customdata}<br>"
-                "<extra></extra>",
-                customdata=detailed_status,
+                hovertemplate="<b>Iteration:</b> %{x}<br><b>Status:</b> %{customdata}<br><extra></extra>",
+                customdata=hover_text,
                 showlegend=False,
             ),
             row=row,
             col=col,
         )
 
-        # Update y-axis to show categories
         fig.update_yaxes(
             tickvals=[0, 1],
             ticktext=["Wells OK", "Wells Failed"],
@@ -225,42 +104,9 @@ class WellStatusPlotComponent(PlotComponent):
             row=row,
             col=col,
         )
-
         fig.update_xaxes(title="Iteration", row=row, col=col)
 
-    def _get_detailed_status(
-        self, data: Dict[str, Any], row_ix: np.ndarray, failed_wells: np.ndarray
-    ) -> List[str]:
-        """Get detailed well status strings for hover information."""
-        detailed_status = []
-
-        if "WellStatus" in data["raw"]:
-            well_status_strings = data["raw"]["WellStatus"][row_ix]
-            for i, status in enumerate(well_status_strings):
-                if isinstance(status, str) and "FAIL" in status:
-                    # Extract well names and reasons
-                    failures = re.findall(r"\{([^}]+)\}", status)
-                    well_info = []
-                    for failure in failures:
-                        parts = failure.strip().split()
-                        well_name = parts[0] if parts else "Unknown"
-                        if "ControlRate" in failure:
-                            reason = "ControlRate"
-                        elif "MassBalance" in failure:
-                            reason = "MassBalance"
-                        else:
-                            reason = "Other"
-                        well_info.append(f"{well_name}: {reason}")
-                    detailed_status.append("<br>".join(well_info))
-                else:
-                    detailed_status.append("All wells OK")
-        else:
-            detailed_status = ["Failed" if val else "OK" for val in failed_wells]
-
-        return detailed_status
-
-    def _add_no_data_message(self, fig: go.Figure, row: int, col: int, message: str):
-        """Add message when no data is available."""
+    def _add_message(self, fig: go.Figure, row: int, col: int, message: str):
         fig.add_annotation(
             text=message,
             x=0.5,
@@ -275,270 +121,131 @@ class WellStatusPlotComponent(PlotComponent):
 
 
 class WellFailureSummaryComponent(PlotComponent):
-    """Component for well failure summary showing failure reasons, counts, and specific wells."""
+    """Text summary of well failures with statistics."""
 
     def add_to_figure(
         self,
         fig: go.Figure,
         row: int,
         col: int,
-        data: Dict[str, Any],
+        data: SimulationData,
         row_ix: np.ndarray,
         step: int,
     ):
-        """Add well failure summary to the figure."""
-        # Check if we have well status data
-        if "raw" not in data or "WellStatus" not in data["raw"]:
-            self._add_no_data_message(
-                fig, row, col, "No detailed well status data available"
-            )
-            return
-
-        # Get well status strings for this step
-        well_status_strings = data["raw"]["WellStatus"][row_ix]
-        failed_wells_bool = (
-            data["raw"]["FailedWells"][row_ix] if "FailedWells" in data["raw"] else None
-        )
-
-        # Analyze failure patterns
         failure_counts, well_failures, failed_iterations = (
-            WellFailureAnalyzer.analyze_well_failures(
-                well_status_strings, failed_wells_bool
-            )
+            WellFailureAnalyzer.analyze_well_failures_from_data(data, row_ix)
         )
-
-        total_iterations = len(well_status_strings)
 
         if not failure_counts:
-            self._add_success_message(fig, row, col, total_iterations)
+            self._add_annotation(
+                fig,
+                row,
+                col,
+                f"✅ All wells converged<br>({len(row_ix)} iterations)",
+                color="#27ae60",
+            )
+            self._hide_axes(fig, row, col)
             return
 
-        # Create structured failure summary
-        summary_text = self._create_failure_summary(
-            well_failures, failure_counts, failed_iterations, total_iterations
+        summary = self._build_summary(
+            well_failures, failure_counts, failed_iterations, len(row_ix)
         )
-
-        fig.add_annotation(
-            text=summary_text,
-            x=0.5,
-            y=0.95,
-            xref=f"x{4}" if row == 2 and col == 2 else "x",
-            yref=f"y{4}" if row == 2 and col == 2 else "y",
-            showarrow=False,
-            font=dict(size=12, color="#495057", family="monospace"),
-            bgcolor="rgba(248,249,250,0.98)",
-            bordercolor="#dee2e6",
-            borderwidth=1,
-            borderpad=12,
-            align="left",
-            xanchor="center",
-            yanchor="top",
-            row=row,
-            col=col,
-        )
-
-        # Hide axes since we're showing a text summary
+        self._add_annotation(fig, row, col, summary, color="#495057")
         self._hide_axes(fig, row, col)
 
-    def _create_failure_summary(
+    def _build_summary(
         self,
-        well_failures: Dict[str, List[Dict[str, Any]]],
-        failure_counts: Dict[str, int],
-        failed_iterations: int,
-        total_iterations: int,
+        well_failures: Dict,
+        failure_counts: Dict,
+        failed_iter: int,
+        total_iter: int,
     ) -> str:
-        """Create structured failure summary text."""
-        num_failed_wells = len(well_failures)
+        lines = [
+            "<b>Well Failure Summary</b>",
+            "",
+            f"Failed Wells: <b>{len(well_failures)}</b> | Failed Iterations: <b>{failed_iter}</b>",
+            "─" * 60,
+        ]
 
-        table_lines = []
-        table_lines.append("<b>Well Failure Summary</b>")
-        table_lines.append("")  # Add blank line for spacing
-        table_lines.append(
-            f"Failed Wells: <b>{num_failed_wells}</b> | Failed Iterations: <b>{failed_iterations}</b>"
-        )
-        table_lines.append("─" * 60)
-
-        if num_failed_wells > 0:
-            self._add_well_details(table_lines, well_failures)
-            self._add_summary_statistics(
-                table_lines, well_failures, failure_counts, failed_iterations
-            )
-
-        return "<br>".join(table_lines)
-
-    def _add_well_details(
-        self, table_lines: List[str], well_failures: Dict[str, List[Dict[str, Any]]]
-    ):
-        """Add detailed well failure information."""
-        max_wells_to_show = 12
-
-        # Sort wells by total number of failures (most problematic first)
+        # Show top 12 wells sorted by failure count
         sorted_wells = sorted(
             well_failures.items(), key=lambda x: len(x[1]), reverse=True
         )
+        max_failures = max(len(f) for f in well_failures.values())
 
-        well_entries = []
-        for idx, (well_name, failures) in enumerate(sorted_wells):
-            if idx >= max_wells_to_show:
-                remaining_wells = len(sorted_wells) - max_wells_to_show
-                well_entries.append(f"<i>... and {remaining_wells} more wells</i>")
-                break
+        for idx, (well_name, failures) in enumerate(sorted_wells[:12]):
+            if idx > 0:
+                lines.append("")
 
-            # Count failures by type for this well
-            failure_type_counts = {}
-            for failure in failures:
-                failure_type = failure["reason"]
-                failure_type_counts[failure_type] = (
-                    failure_type_counts.get(failure_type, 0) + 1
+            # Aggregate failure types
+            type_counts = defaultdict(int)
+            for f in failures:
+                type_counts[f["reason"]] += 1
+
+            types = ", ".join(
+                f"{t} ({c}x)" if c > 1 else t
+                for t, c in sorted(
+                    type_counts.items(), key=lambda x: x[1], reverse=True
                 )
+            )
 
-            # Get all iterations for this well
-            iterations = [f["iteration"] for f in failures]
+            iters = [f["iteration"] for f in failures]
+            iter_str = (
+                f"iter {iters[0]}"
+                if len(iters) == 1
+                else f"iters {min(iters)}-{max(iters)} ({len(iters)} total)"
+            )
 
-            # Format failure types with frequencies
-            type_parts = []
-            for failure_type, count in sorted(
-                failure_type_counts.items(), key=lambda x: x[1], reverse=True
-            ):
-                if count == 1:
-                    type_parts.append(failure_type)
-                else:
-                    type_parts.append(f"{failure_type} ({count}x)")
+            color = self._get_color_emoji(len(failures), max_failures)
+            lines.append(f"{color} <b>{well_name}</b>: {types}")
+            lines.append(f"      <i>{iter_str}</i>")
 
-            types_text = ", ".join(type_parts)
+        if len(sorted_wells) > 12:
+            lines.append("", f"<i>... and {len(sorted_wells) - 12} more wells</i>")
 
-            # Format iterations compactly
-            if len(iterations) == 1:
-                iter_text = f"iter {iterations[0]}"
-            elif len(iterations) <= 3:
-                iter_text = f"iters {', '.join(map(str, sorted(iterations)))}"
-            else:
-                iter_text = f"iters {min(iterations)}-{max(iterations)} ({len(iterations)} total)"
-
-            # Get color coding for severity
-            max_failures = max(len(failures) for failures in well_failures.values())
-            color_emoji = self._get_well_color(len(failures), max_failures)
-
-            well_entries.append(f"{color_emoji} <b>{well_name}</b>: {types_text}")
-            well_entries.append(f"    └─ {iter_text}")
-
-        # Add well entries with proper spacing
-        for i, entry in enumerate(well_entries):
-            if entry.startswith("    └─"):
-                table_lines.append(f"      <i>{entry[6:]}</i>")
-            else:
-                if i > 0 and not entry.startswith("<i>"):
-                    table_lines.append("")
-                table_lines.append(entry)
-
-    def _add_summary_statistics(
-        self,
-        table_lines: List[str],
-        well_failures: Dict[str, List[Dict[str, Any]]],
-        failure_counts: Dict[str, int],
-        failed_iterations: int,
-    ):
-        """Add summary statistics to the failure report."""
+        # Summary stats for multiple wells
         if len(well_failures) > 1:
-            table_lines.append("")
-            table_lines.append("─" * 40)
-            table_lines.append("")  # Add extra spacing
+            lines.extend(["", "─" * 40, "", "<b>📈 Top Issues:</b>"])
+            for i, (ftype, count) in enumerate(
+                sorted(failure_counts.items(), key=lambda x: x[1], reverse=True)[:3], 1
+            ):
+                pct = (count / failed_iter) * 100
+                lines.append(f"  {i}. {ftype}: <b>{count}</b> ({pct:.0f}%)")
 
-            # Show top failure types
-            top_types = sorted(
-                failure_counts.items(), key=lambda x: x[1], reverse=True
-            )[:3]
-            table_lines.append("<b>📈 Top Issues:</b>")
-            for i, (ftype, count) in enumerate(top_types, 1):
-                percentage = (count / failed_iterations) * 100
-                table_lines.append(
-                    f"  {i}. {ftype}: <b>{count}</b> ({percentage:.0f}%)"
-                )
+        return "<br>".join(lines)
 
-            # Add most problematic well
-            most_problematic = max(well_failures.items(), key=lambda x: len(x[1]))
-            max_failures = max(len(failures) for failures in well_failures.values())
-            most_problematic_color = self._get_well_color(
-                len(most_problematic[1]), max_failures
-            )
-            table_lines.append("")
-            table_lines.append("")  # Add extra spacing
-            table_lines.append(
-                f"<b>🔴 Most Problematic:</b> {most_problematic_color} <b>{most_problematic[0]}</b> ({len(most_problematic[1])} failures)"
-            )
-
-    def _get_well_color(self, failure_count: int, max_failures: int) -> str:
-        """Get color emoji based on failure severity."""
-        if failure_count == 0:
+    def _get_color_emoji(self, count: int, max_count: int) -> str:
+        if count == 0:
             return "🟢"
+        severity = count / max(max_count, 1)
+        return "🔴" if severity >= 0.75 else "🟠" if severity >= 0.5 else "🟡"
 
-        if max_failures == 1:
-            return "🟡"
-
-        severity = failure_count / max_failures
-
-        if severity >= 0.75:
-            return "🔴"
-        elif severity >= 0.5:
-            return "🟠"
-        else:
-            return "🟡"
-
-    def _add_success_message(
-        self, fig: go.Figure, row: int, col: int, total_iterations: int
+    def _add_annotation(
+        self, fig: go.Figure, row: int, col: int, text: str, color: str
     ):
-        """Add success message when no failures occurred."""
         fig.add_annotation(
-            text=f"✅ All wells converged<br>({total_iterations} iterations)",
+            text=text,
             x=0.5,
             y=0.95,
             xref=f"x{4}" if row == 2 and col == 2 else "x",
             yref=f"y{4}" if row == 2 and col == 2 else "y",
             showarrow=False,
-            font=dict(size=16, color="#27ae60"),
+            font=dict(size=12, color=color, family="monospace"),
             bgcolor="rgba(248,249,250,0.98)",
             bordercolor="#dee2e6",
             borderwidth=1,
             borderpad=12,
-            align="center",
+            align="left" if color == "#495057" else "center",
             xanchor="center",
             yanchor="top",
             row=row,
             col=col,
         )
-        self._hide_axes(fig, row, col)
-
-    def _add_no_data_message(self, fig: go.Figure, row: int, col: int, message: str):
-        """Add message when no data is available."""
-        fig.add_annotation(
-            text=message,
-            x=0.5,
-            y=0.95,
-            xref=f"x{4}" if row == 2 and col == 2 else "x",
-            yref=f"y{4}" if row == 2 and col == 2 else "y",
-            showarrow=False,
-            font=dict(size=16, color="#7f8c8d"),
-            align="center",
-            xanchor="center",
-            yanchor="top",
-            row=row,
-            col=col,
-        )
-        self._hide_axes(fig, row, col)
 
     def _hide_axes(self, fig: go.Figure, row: int, col: int):
-        """Hide axes for text-only displays."""
         fig.update_xaxes(
-            showticklabels=False,
-            showgrid=False,
-            zeroline=False,
-            row=row,
-            col=col,
+            showticklabels=False, showgrid=False, zeroline=False, row=row, col=col
         )
         fig.update_yaxes(
-            showticklabels=False,
-            showgrid=False,
-            zeroline=False,
-            row=row,
-            col=col,
+            showticklabels=False, showgrid=False, zeroline=False, row=row, col=col
         )

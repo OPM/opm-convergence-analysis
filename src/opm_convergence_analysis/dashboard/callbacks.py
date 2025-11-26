@@ -196,7 +196,11 @@ def register_step_navigation_callbacks(app: dash.Dash, data_handler: DataHandler
         )
 
         # Calculate step bounds
-        n_steps = len(data_handler.data.get("curve_pos", [])) - 1
+        if hasattr(data_handler.data, "n_steps"):
+            n_steps = data_handler.data.n_steps
+        else:
+            n_steps = len(data_handler.data.get("curve_pos", [])) - 1
+
         max_step = max(0, n_steps - 1)
 
         # Check what triggered this callback

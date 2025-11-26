@@ -8,15 +8,16 @@ visualization for OPM Flow convergence analysis.
 
 import argparse
 import sys
-import os
 from pathlib import Path
 
-# Add the package to the path for imports
-sys.path.insert(0, str(Path(__file__).parent))
+# Add the src directory to the path for imports ONLY if package not installed
+try:
+    import opm_convergence_analysis
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from src.opm_convergence_analysis.dashboard import create_app, DataHandler
-from src.opm_convergence_analysis.dashboard.app import run_app
-import src.opm_convergence_analysis as oca
+from opm_convergence_analysis.dashboard import create_app, DataHandler
+from opm_convergence_analysis.dashboard.app import run_app
 
 
 def parse_arguments():

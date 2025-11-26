@@ -310,7 +310,7 @@ def load_case_data(input_path: Union[str, Path]) -> Dict[str, Any]:
     Returns:
         Dictionary with loaded data and parameters
     """
-    import opm_convergence_analysis as oca
+    from .infoiter import InfoIterReader
 
     files = find_case_files(input_path)
 
@@ -324,7 +324,8 @@ def load_case_data(input_path: Union[str, Path]) -> Dict[str, Any]:
     # Load INFOITER data if available
     if files["infoiter"]:
         try:
-            result["data"] = oca.load_infoiter(str(files["infoiter"]))
+            reader = InfoIterReader()
+            result["data"] = reader.read_infoiter(str(files["infoiter"]))
             logger.info(f"Loaded INFOITER data from {files['infoiter']}")
         except Exception as e:
             logger.error(f"Failed to load INFOITER file: {e}")

@@ -9,14 +9,14 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime, timedelta
-from ..utils.helpers import (
+from ...utils.helpers import (
     compute_start_positions,
     process_well_status,
     collect_columns,
 )
 
 
-class DataReader:
+class InfoIterReader:
     """
     Reader for OPM Flow INFOITER files.
 
@@ -26,7 +26,7 @@ class DataReader:
     """
 
     def __init__(self):
-        """Initialize the DataReader."""
+        """Initialize the InfoIterReader."""
         pass
 
     def read_infoiter(self, filename: str) -> Dict[str, Any]:
@@ -404,5 +404,5 @@ def read_infoiter(filename: str) -> Dict[str, Any]:
     Returns:
         Parsed data structure
     """
-    reader = DataReader()
+    reader = InfoIterReader()
     return reader.read_infoiter(filename)

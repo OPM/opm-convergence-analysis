@@ -6,44 +6,67 @@ Contains helper functions to simplify and optimize callback logic.
 
 import numpy as np
 import plotly.graph_objects as go
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List, Tuple, Optional, Union
 from datetime import datetime
 
 from ..ui.styles import status_badge_style
-from ..core.data_reader import DataReader
+from ..core.models import SimulationData
 
 
 def get_step_date_info(
-    data: Dict[str, Any], step_idx: int
+    data: SimulationData, step_idx: int
 ) -> Tuple[Optional[datetime], Optional[str]]:
     """
     Get date information for a specific step using pre-calculated dates.
 
     Args:
-        data: Raw data dictionary with pre-calculated step_dates
+        data: SimulationData object
         step_idx: Step index (0-based)
 
     Returns:
         Tuple of (datetime object, formatted date string)
     """
     try:
-        reader = DataReader()
-        return reader.get_step_date_info(data, step_idx)
+        # Handle SimulationData object
+        if hasattr(data, "steps"):
+            steps_df = data.steps
+            if step_idx < len(steps_df) and "date" in steps_df.columns:
+                date_val = steps_df["date"].iloc[step_idx]
+                # Convert to datetime if it's a string or pandas timestamp
+                if isinstance(date_val, str):
+                    dt = datetime.fromisoformat(date_val)
+                else:
+                    dt = (
+                        date_val.to_pydatetime()
+                        if hasattr(date_val, "to_pydatetime")
+                        else date_val
+                    )
+
+                return dt, dt.strftime("%Y-%m-%d")
+
+        return None, None
     except Exception:
         return None, None
 
 
-def compute_iteration_data(data: Dict[str, Any]) -> Tuple[np.ndarray, np.ndarray, int]:
+def compute_iteration_data(
+    data: SimulationData,
+) -> Tuple[np.ndarray, np.ndarray, int]:
     """
     Compute iteration statistics from curve position data.
 
     Args:
-        data: Raw data dictionary containing curve_pos
+        data: SimulationData object
 
     Returns:
         Tuple of (iterations_per_step, cumulative_sums, total_iterations)
     """
-    curve_pos = data.get("curve_pos", [])
+    if hasattr(data, "get_curve_pos"):
+        # Handle SimulationData object
+        curve_pos = data.get_curve_pos()
+    else:
+        return np.array([]), np.array([]), 0
+
     if len(curve_pos) <= 1:
         return np.array([]), np.array([]), 0
 
@@ -104,45 +127,32 @@ def create_slider_marks(num_steps: int, max_marks: int = 10) -> Dict[int, str]:
     return marks
 
 
-def get_step_details(data: Dict[str, Any], step_idx: int) -> str:
+def get_step_details(data: SimulationData, step_idx: int) -> str:
     """
     Get formatted step details (report step, time step, and date).
 
     Args:
-        data: Raw data dictionary
+        data: SimulationData object
         step_idx: Step index (0-based)
 
     Returns:
         Formatted step details string
     """
-    if not data or "raw" not in data or "curve_pos" not in data:
-        return ""
-
-    curve_pos = data["curve_pos"]
-    if step_idx >= len(curve_pos) - 1:
-        return ""
-
-    step_start_idx = curve_pos[step_idx]
-    raw_data = data["raw"]
-
-    if "ReportStep" in raw_data and "TimeStep" in raw_data:
-        # Check bounds to avoid IndexError
-        if step_start_idx >= len(raw_data["ReportStep"]) or step_start_idx >= len(
-            raw_data["TimeStep"]
-        ):
+    # Handle SimulationData
+    if hasattr(data, "steps"):
+        if step_idx >= len(data.steps):
             return ""
 
-        report_step = raw_data["ReportStep"][step_start_idx]
-        time_step = raw_data["TimeStep"][step_start_idx]
+        step_info = data.steps.iloc[step_idx]
+        primary_info_parts = []
+
+        if "report_step" in step_info:
+            primary_info_parts.append(f"Report Step: {step_info['report_step']}")
+        if "time_step" in step_info:
+            primary_info_parts.append(f"Time Step: {step_info['time_step']}")
 
         # Get date information
         _, formatted_date = get_step_date_info(data, step_idx)
-
-        # Format with primary info (report step, time step, date) emphasized
-        primary_info_parts = []
-        primary_info_parts.append(f"Report Step: {report_step}")
-        primary_info_parts.append(f"Time Step: {time_step}")
-
         if formatted_date:
             primary_info_parts.append(f"Date: {formatted_date}")
 
