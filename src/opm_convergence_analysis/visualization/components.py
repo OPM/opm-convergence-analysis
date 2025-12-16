@@ -188,7 +188,9 @@ class DistancePlotComponent(PlotComponent):
 
 
 class RadarPlotComponent(PlotComponent):
-    """Component for error metrics radar plot."""
+    """Component for convergence distance radar/polar plot."""
+
+    COLORSCALE = "Inferno_r"
 
     def add_to_figure(
         self,
@@ -200,67 +202,122 @@ class RadarPlotComponent(PlotComponent):
         row_ix: np.ndarray,
         step: int,
     ):
-        """Add radar plot to the figure."""
-        n_iterations = len(row_ix)
-        max_error = max(np.max(errors[row_ix, :]), 6)
-
-        # Enhanced color scheme
-        if n_iterations <= 8:
-            colors = px.colors.qualitative.Set2[:n_iterations]
-        else:
-            colors = px.colors.sample_colorscale("viridis", n_iterations)
-
-        colors = [
-            f"rgba{px.colors.hex_to_rgb(c) + (0.8,)}" if "#" in c else c for c in colors
-        ]
+        """Add radar plot showing convergence distance per metric."""
+        n_iter = len(row_ix)
+        labels_closed = list(labels) + [labels[0]]
+        colors = px.colors.sample_colorscale(
+            self.COLORSCALE,
+            np.linspace(0, 1, n_iter),
+        )
+        discrete_colorscale = self._build_discrete_colorscale(colors, n_iter)
 
         for i, iter_idx in enumerate(row_ix):
-            opacity = 0.7 if i == n_iterations - 1 else 0.4
-            line_width = 3 if i == n_iterations - 1 else 2
+            is_last = i == n_iter - 1
+            progress = i / max(n_iter - 1, 1)
+            r_values = list(errors[iter_idx, :]) + [errors[iter_idx, 0]]
+            rgb = px.colors.unlabel_rgb(colors[i])
+
+            # Visible markers at vertices; colorbar attached to the last trace
+            marker_config = dict(
+                size=4 + 3 * progress,
+                color=[i + 1.5] * len(r_values),  # Numeric value for colorscale mapping
+                colorscale=discrete_colorscale,
+                cmin=1,
+                cmax=n_iter + 1,
+                showscale=is_last,
+                colorbar=dict(
+                    title=dict(text="Iter", side="top", font=dict(size=11)),
+                    thickness=12,
+                    len=0.35,
+                    y=0.78,
+                    x=0.92,
+                    tickvals=self._colorbar_tickvals(n_iter),
+                    ticktext=self._colorbar_ticktext(n_iter),
+                    tickmode="array",
+                    outlinewidth=1,
+                    outlinecolor="#888",
+                ) if is_last else None,
+            )
 
             fig.add_trace(
                 go.Scatterpolar(
-                    r=errors[iter_idx, :],
-                    theta=labels,
+                    r=r_values,
+                    theta=labels_closed,
                     fill="toself",
-                    name=f"Iter {i+1}" + (" (Final)" if i == n_iterations - 1 else ""),
-                    line=dict(color=colors[i], width=line_width),
-                    fillcolor=colors[i],
-                    opacity=opacity,
-                    showlegend=bool(i < 6 or i == n_iterations - 1),
-                    hovertemplate=format_hover_template(
-                        f"Iteration {i+1}", "%{theta}", "%{r:.2e}"
+                    name=f"Iter {i+1}",
+                    mode="lines+markers",
+                    line=dict(
+                        color=f"rgba{rgb + (0.95,)}",
+                        width=1.2 + 2.6 * progress,
                     ),
+                    marker=marker_config,
+                    fillcolor=f"rgba{rgb + (0.12 + 0.20 * progress,)}",
+                    showlegend=False,
+                    hovertemplate=f"<b>Iteration {i+1}</b><br>%{{theta}}: %{{r:.2f}}<extra></extra>",
                 ),
                 row=row,
                 col=col,
             )
 
-        self._update_polar_axes(fig, row, col)
+        self._update_polar_axes(fig, row, col, errors, row_ix)
 
-    def _update_polar_axes(self, fig: go.Figure, row: int, col: int):
-        """Update polar axes styling."""
+    def _build_discrete_colorscale(self, colors: List[str], n_iter: int) -> List:
+        """Build a discrete colorscale with sharp color boundaries."""
+        discrete_scale = []
+        for i, color in enumerate(colors):
+            discrete_scale.append([i / n_iter, color])
+            discrete_scale.append([(i + 1) / n_iter, color])
+        return discrete_scale
+
+    def _colorbar_tickvals(self, n_iter: int) -> List[float]:
+        """Get tick values for colorbar (centered in each color band)."""
+        if n_iter <= 8:
+            return [i + 0.5 for i in range(1, n_iter + 1)]
+        return [1.5, n_iter + 0.5]
+
+    def _colorbar_ticktext(self, n_iter: int) -> List[str]:
+        """Get tick labels for colorbar."""
+        if n_iter <= 8:
+            return [str(i) for i in range(1, n_iter + 1)]
+        return ["1", str(n_iter)]
+
+    def _update_polar_axes(
+        self,
+        fig: go.Figure,
+        row: int,
+        col: int,
+        errors: np.ndarray,
+        row_ix: np.ndarray,
+    ):
+        """Configure polar axes styling and range."""
+        range_max = min(max(int(np.ceil(np.max(errors[row_ix, :]))), 2), 6)
+
         fig.update_polars(
             radialaxis=dict(
                 visible=True,
-                range=[0, 6],
-                tickmode="linear",
-                tick0=0,
-                dtick=1,
-                gridcolor="rgba(0,0,0,0.15)",
+                range=[0, range_max],
+                tickvals=list(range(range_max + 1)),
+                tickmode="array",
+                gridcolor="rgba(100,100,100,0.2)",
                 linecolor="rgba(0,0,0,0.3)",
-                tickfont=dict(size=12, family=self.plotter.font_family),
+                tickfont=dict(
+                    size=11,
+                    family=self.plotter.font_family,
+                    color="#444",
+                ),
             ),
             angularaxis=dict(
                 tickfont=dict(
-                    size=12, family=self.plotter.font_family, color="#495057"
+                    size=11,
+                    family=self.plotter.font_family,
+                    color="#333",
                 ),
-                gridcolor="rgba(0,0,0,0.15)",
-                linecolor="rgba(0,0,0,0.3)",
+                gridcolor="rgba(100,100,100,0.15)",
+                linecolor="rgba(0,0,0,0.2)",
                 rotation=90,
                 direction="clockwise",
             ),
-            bgcolor="rgba(248,249,250,0.3)",
+            bgcolor="rgba(252,252,255,0.3)",
             row=row,
             col=col,
         )

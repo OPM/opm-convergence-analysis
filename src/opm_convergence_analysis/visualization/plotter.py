@@ -114,8 +114,8 @@ class ConvergencePlotter:
             rows=2,
             cols=2,
             subplot_titles=[
-                "#unconverged and Distance Metrics",
-                "Convergence Progress",
+                "Number of unconverged metrics and distance from convergence",
+                "Distance from Convergence per metric",
                 "Well Status & Failures",
                 "Well Failure Details",
             ],
@@ -123,8 +123,10 @@ class ConvergencePlotter:
                 [{"secondary_y": True}, {"type": "polar"}],
                 [{"secondary_y": False}, {"secondary_y": False}],
             ],
-            horizontal_spacing=0.15,
-            vertical_spacing=0.25,
+            column_widths=[0.4, 0.6],  # Give more width to polar plot
+            row_heights=[0.55, 0.45],  # Give more height to top row
+            horizontal_spacing=0.08,
+            vertical_spacing=0.20,
         )
 
         # Add components for the first step
@@ -133,13 +135,17 @@ class ConvergencePlotter:
             fig, data, errors, labels, metrics, current_step
         )
 
-        # Apply theming and layout
         fig.update_layout(
             template=self.theme,
-            height=750,
+            height=850,
             showlegend=False,
-            margin=dict(l=60, r=60, t=60, b=60),
+            margin=dict(l=50, r=50, t=80, b=50),
         )
+
+        # Shift polar plot title up to avoid overlap
+        for ann in fig.layout.annotations:
+            if "Distance from Convergence per metric" in ann.text:
+                ann.y += 0.03
 
         return fig
 
